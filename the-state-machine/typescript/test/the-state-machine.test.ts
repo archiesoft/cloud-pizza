@@ -75,3 +75,9 @@ test('orderPizza function should return containsPineapple as true for pineapple 
   expect(result.containsPineapple).toBe(true);  
 });
 
+test('orderPizza function should return containsPineapple as true for hawaiian flavor', async () => {
+  const event = 'hawaiian';
+  const result = await orderPizza.handler(event);
+  expect(result.containsPineapple).toBe(true);
+});
+
