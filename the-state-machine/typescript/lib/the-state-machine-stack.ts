@@ -76,11 +76,7 @@ export class TheStateMachineStack extends cdk.Stack {
     });
 
     const pizzaDelivered = new sfn.Succeed(this, 'PizzaDelivered');
-
-    const paymentFailed = new sfn.Fail(this, 'PaymentFailed');
-
-     
-
+    
     //Express Step function definition
     let definition = sfn.Chain
     .start(orderPizza)
