@@ -59,3 +59,19 @@ test('Order Pizza Lambda Created', () => {
   ));
 });
 
+
+//testing cookPizza Lambda handler
+const orderPizza = require('../lambda-fns/orderPizza.js');
+
+test('orderPizza function should return containsPineapple as false for non-pineapple flavors', async () => {
+  const event = 'pepperoni';
+  const result = await orderPizza.handler(event);
+  expect(result.containsPineapple).toBe(false);
+});
+
+test('orderPizza function should return containsPineapple as true for pineapple flavor', async () => {
+  const event = 'pineapple';
+  const result = await orderPizza.handler(event);
+  expect(result.containsPineapple).toBe(true);  
+});
+

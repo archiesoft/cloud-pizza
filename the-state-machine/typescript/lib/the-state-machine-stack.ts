@@ -3,7 +3,9 @@ import lambda = require('@aws-cdk/aws-lambda');
 import apigw = require('@aws-cdk/aws-apigatewayv2');
 import sfn = require('@aws-cdk/aws-stepfunctions');
 import tasks = require('@aws-cdk/aws-stepfunctions-tasks');
+import * as sns from '@aws-cdk/aws-sns';
 import { Effect, PolicyDocument, PolicyStatement, Role, ServicePrincipal } from '@aws-cdk/aws-iam';
+
 
 export class TheStateMachineStack extends cdk.Stack {
   constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
@@ -26,27 +28,73 @@ export class TheStateMachineStack extends cdk.Stack {
       inputPath: '$.flavour',
       resultPath: '$.pineappleAnalysis',
       payloadResponseOnly: true
-    })
+    });
 
     // Pizza Order failure step defined
     const pineappleDetected = new sfn.Fail(this, 'Sorry, We Dont add Pineapple', {
       cause: 'They asked for Pineapple',
       error: 'Failed To Make Pizza',
     });
+    
+    //As per normal flow, we process the payment first and send request to make pizza
+    //create Lambda to process the payment
+
+    //invoke process payment lambda function
+    const processPaymentLambda = new lambda.Function(this, 'snsNotify', {
+      runtime: lambda.Runtime.NODEJS_12_X,
+      code: lambda.Code.fromAsset('lambda-fns'),
+      handler: 'handleProcessPayment.handler'
+    }); 
+
+    const pizzaFailureTopic = new sns.Topic(this, 'PizzaFailureTopic');
+    const message = 'Payment processing failed';
+    const sendNotification = new tasks.SnsPublish(this, 'Publish Payment Failed to SNS', {
+      topic: pizzaFailureTopic,
+      message: JSON.parse(message),
+      subject: 'Payment Failed'
+    }); 
+
+    //invoke processPayment
+    const processPayment =  new tasks.LambdaInvoke(this, 'NotifyPaymentFailureLambda', {
+      lambdaFunction: processPaymentLambda,
+      inputPath: '$.amount',
+      resultPath: '$.paymentStatus',
+      payloadResponseOnly: true
+    })
+    //notify through sns in Lambda function, payment fails
+    .addCatch(sendNotification, {
+      errors: ['States.ALL'],
+      resultPath: '$.error'
+    });      
 
     // If they didnt ask for pineapple let's cook the pizza
-    const cookPizza = new sfn.Succeed(this, 'Lets make your pizza', {
-      outputPath: '$.pineappleAnalysis'
+    const cookPizza = new tasks.LambdaInvoke(this, "Cook Pizza", {
+      lambdaFunction: pineappleCheckLambda,
+      inputPath: '$.flavour',
+      resultPath: '$.pineappleAnalysis',
+      payloadResponseOnly: true
     });
 
+    const pizzaDelivered = new sfn.Succeed(this, 'PizzaDelivered');
+
+    const paymentFailed = new sfn.Fail(this, 'PaymentFailed');
+
+     
+
     //Express Step function definition
-    const definition = sfn.Chain
+    let definition = sfn.Chain
     .start(orderPizza)
     .next(new sfn.Choice(this, 'With Pineapple?') // Logical choice added to flow
         // Look at the "status" field
-        .when(sfn.Condition.booleanEquals('$.pineappleAnalysis.containsPineapple', true), pineappleDetected) // Fail for pineapple
-        .otherwise(cookPizza));
+        .when(sfn.Condition.booleanEquals('$.pineappleAnalysis.containsPineapple', true), pineappleDetected)
+        // if flavour is pepperoni, 
+        .otherwise(processPayment))
+        //if payment succeeded, prepare/cook pizza
+        .next(cookPizza)
+        //Step function success
+        .next(pizzaDelivered);
 
+    // Step functions are built up of steps, we need to define our first step    
     let stateMachine = new sfn.StateMachine(this, 'StateMachine', {
       definition,
       timeout: cdk.Duration.minutes(5),
